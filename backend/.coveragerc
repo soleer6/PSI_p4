@@ -1,0 +1,13 @@
+[run]
+source = song_models,api
+omit =
+    */migrations/*
+    */management/*
+    */tests/*
+    */test_*
+    manage.py
+    songproject/*
+
+[report]
+show_missing = True
+fail_under = 90
