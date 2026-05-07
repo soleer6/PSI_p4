@@ -1,117 +1,244 @@
 <script setup>
-import { ref, onMounted } from "vue";
-import { useRouter } from "vue-router";
+import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { storeToRefs } from 'pinia'
+import { useSongsStore } from '@/stores/songs'
+import SongCard from '@/components/SongCard.vue'
 
-const API = import.meta.env.VITE_API_BASE_URL;
-const router = useRouter();
+defineOptions({ name: 'home-view' })
 
-const topSongs = ref([]);
-const searchText = ref("");
-const searchResults = ref([]);
-const searchError = ref("");
-const loadingTop = ref(true);
+const songsStore = useSongsStore()
+const router = useRouter()
+const {
+  list,
+  page,
+  count,
+  next,
+  previous,
+  loading,
+  error,
+  topList,
+  searchResults,
+  searchQuery,
+  searchLoading,
+  searchError,
+} = storeToRefs(songsStore)
+
+const pageSize = 3
+const totalPages = computed(() =>
+  count.value ? Math.ceil(count.value / pageSize) : 1
+)
+
+const topN = ref(3)
+const searchInput = ref('')
 
 onMounted(async () => {
-  try {
-    const res = await fetch(`${API}/songs/top/?n=3`);
-    const data = await res.json();
-    topSongs.value = data;
-  } finally {
-    loadingTop.value = false;
-  }
-});
+  await Promise.all([
+    songsStore.fetchPage(1),
+    songsStore.fetchTop(topN.value),
+  ])
+})
 
-async function search() {
-  searchError.value = "";
-  searchResults.value = [];
-  if (!searchText.value.trim()) return;
-  try {
-    const res = await fetch(
-      `${API}/songs/search/?title=${encodeURIComponent(searchText.value)}`
-    );
-    if (res.status === 404) {
-      searchError.value = "No songs found.";
-      return;
-    }
-    if (!res.ok) {
-      searchError.value = "Search error.";
-      return;
-    }
-    const data = await res.json();
-    if (Array.isArray(data)) {
-      searchResults.value = data;
-    } else if (data.results !== undefined) {
-      searchResults.value = Array.isArray(data.results)
-        ? data.results
-        : [data.results];
-    } else {
-      searchResults.value = [data];
-    }
-  } catch {
-    searchError.value = "Network error.";
-  }
+function prevPage() {
+  if (previous.value) songsStore.fetchPage(page.value - 1)
+}
+function nextPage() {
+  if (next.value) songsStore.fetchPage(page.value + 1)
 }
 
-async function playRandom() {
-  const res = await fetch(`${API}/songs/random/`);
-  const data = await res.json();
-  router.push({ name: "play", params: { id: data.id } });
+async function handleSearch() {
+  await songsStore.search(searchInput.value.trim())
 }
 
-function playSong(id) {
-  router.push({ name: "play", params: { id } });
+async function handleTopChange() {
+  const n = Math.max(1, Number(topN.value) || 3)
+  topN.value = n
+  await songsStore.fetchTop(n)
+}
+
+async function handleRandom() {
+  const song = await songsStore.fetchRandom()
+  if (song && song.id) {
+    router.push({ name: 'play', params: { id: song.id } })
+  }
 }
 </script>
 
 <template>
-  <div>
-    <h1 class="mb-4">SongProject</h1>
+  <section class="home-view" data-cy="home-view">
+    <div class="d-flex flex-wrap align-items-center justify-content-between mb-4 gap-2">
+      <h1 class="h3 mb-0">Canciones</h1>
+      <button
+        type="button"
+        class="btn btn-warning"
+        data-cy="random-btn"
+        @click="handleRandom"
+      >
+        🎲 Random song
+      </button>
+    </div>
 
-    <section class="mb-5">
-      <h2 class="h4 mb-3">Top Songs</h2>
-      <div v-if="loadingTop" class="text-muted">Loading…</div>
-      <ul v-else class="list-group mb-3">
-        <li
-          v-for="song in topSongs"
-          :key="song.id"
-          class="list-group-item list-group-item-action"
-          style="cursor: pointer"
-          :data-cy="song.title"
-          @click="playSong(song.id)"
+    <!-- Búsqueda -->
+    <div class="card shadow-sm mb-4" data-cy="search-section">
+      <div class="card-body">
+        <label for="search-input" class="form-label h5 mb-3 d-block">
+          Buscar por título
+        </label>
+        <form class="d-flex gap-2" data-cy="search-form" @submit.prevent="handleSearch">
+          <input
+            id="search-input"
+            v-model="searchInput"
+            type="search"
+            class="form-control"
+            placeholder="Ej: Here In The Real World"
+            aria-label="Buscar canciones por título"
+            data-cy="search_text"
+          >
+          <button
+            type="submit"
+            class="btn btn-outline-primary"
+            data-cy="search_button"
+          >
+            Buscar
+          </button>
+        </form>
+        <div v-if="searchLoading" class="text-muted mt-3">Buscando…</div>
+        <div
+          v-else-if="searchError"
+          class="alert alert-warning mt-3 mb-0"
+          data-cy="search-error"
         >
-          {{ song.title }} — {{ song.artist }}
-        </li>
-      </ul>
-      <button class="btn btn-secondary" @click="playRandom">Random song</button>
-    </section>
-
-    <section>
-      <h2 class="h4 mb-3">Search</h2>
-      <div class="input-group mb-3">
-        <input
-          v-model="searchText"
-          class="form-control"
-          data-cy="search_text"
-          placeholder="Song title…"
-          @keyup.enter="search"
-        />
-        <button class="btn btn-primary" data-cy="search_button" @click="search">
-          Search
-        </button>
+          {{ searchError }}
+        </div>
+        <div
+          v-else-if="searchQuery && searchResults.length"
+          class="row g-3 mt-2"
+          data-cy="search-results"
+        >
+          <div
+            v-for="song in searchResults"
+            :key="`search-${song.id}`"
+            class="col-sm-6 col-md-4"
+          >
+            <SongCard :song="song" :use-title-as-cy="true" />
+          </div>
+        </div>
+        <div
+          v-else-if="searchQuery && !searchResults.length"
+          class="alert alert-info mt-3 mb-0"
+          data-cy="search-empty"
+        >
+          No se encontraron canciones para <strong>"{{ searchQuery }}"</strong>.
+        </div>
       </div>
-      <div v-if="searchError" class="text-danger">{{ searchError }}</div>
-      <ul v-if="searchResults.length" class="list-group">
-        <li
-          v-for="song in searchResults"
-          :key="song.id"
-          class="list-group-item list-group-item-action"
-          style="cursor: pointer"
-          :data-cy="song.title"
-          @click="playSong(song.id)"
+    </div>
+
+    <!-- Top N -->
+    <div class="card shadow-sm mb-4" data-cy="top-section">
+      <div class="card-body">
+        <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+          <h2 class="h5 mb-0 me-auto">Top canciones más jugadas</h2>
+          <label for="top-n" class="form-label mb-0 small">Mostrar</label>
+          <input
+            id="top-n"
+            v-model.number="topN"
+            type="number"
+            min="1"
+            max="50"
+            class="form-control form-control-sm"
+            style="width: 80px"
+            aria-label="Número de canciones a mostrar en el top"
+            title="Número de canciones a mostrar"
+            data-cy="top-n-input"
+            @change="handleTopChange"
+          >
+          <span class="form-label mb-0 small text-muted">canciones</span>
+        </div>
+        <div v-if="topList.length === 0" class="text-muted" data-cy="top-empty">
+          Aún no hay canciones en el top.
+        </div>
+        <div v-else class="row g-3" data-cy="top-results">
+          <div
+            v-for="song in topList"
+            :key="`top-${song.id}`"
+            class="col-sm-6 col-md-4"
+          >
+            <SongCard :song="song" />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Listado paginado -->
+    <div class="card shadow-sm" data-cy="list-section">
+      <div class="card-body">
+        <h2 class="h5 mb-3">Todas las canciones</h2>
+
+        <div
+          v-if="loading"
+          class="row g-3"
+          data-cy="list-loading"
+          aria-live="polite"
+          aria-busy="true"
         >
-          {{ song.title }} — {{ song.artist }}
-        </li>
-      </ul>
-    </section>
-  </div>
+          <div v-for="n in 3" :key="`skeleton-${n}`" class="col-sm-6 col-md-4">
+            <div class="card song-card h-100 shadow-sm skeleton-card">
+              <div class="cover skeleton-shimmer" />
+              <div class="card-body">
+                <div class="skeleton-line skeleton-shimmer mb-2" />
+                <div class="skeleton-line skeleton-shimmer mb-2" style="width: 60%" />
+                <div class="skeleton-line-sm skeleton-shimmer" />
+              </div>
+            </div>
+          </div>
+          <p class="text-center text-muted small mt-2 mb-0">
+            Cargando canciones… (primer arranque puede tardar unos segundos en Render free tier)
+          </p>
+        </div>
+        <div v-else-if="error" class="alert alert-danger" data-cy="list-error">
+          {{ error }}
+        </div>
+        <div v-else-if="list.length === 0" class="text-muted" data-cy="list-empty">
+          No hay canciones disponibles.
+        </div>
+        <div v-else class="row g-3" data-cy="list-results">
+          <div
+            v-for="song in list"
+            :key="`list-${song.id}`"
+            class="col-sm-6 col-md-4"
+          >
+            <SongCard :song="song" />
+          </div>
+        </div>
+
+        <nav
+          v-if="count > pageSize"
+          class="mt-4 d-flex align-items-center justify-content-between"
+          data-cy="list-pagination"
+        >
+          <button
+            type="button"
+            class="btn btn-outline-secondary"
+            :disabled="!previous"
+            data-cy="page-prev"
+            @click="prevPage"
+          >
+            ← Anterior
+          </button>
+          <span data-cy="page-info">
+            Página <strong>{{ page }}</strong> de <strong>{{ totalPages }}</strong>
+          </span>
+          <button
+            type="button"
+            class="btn btn-outline-secondary"
+            :disabled="!next"
+            data-cy="page-next"
+            @click="nextPage"
+          >
+            Siguiente →
+          </button>
+        </nav>
+      </div>
+    </div>
+  </section>
 </template>

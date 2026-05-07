@@ -1,62 +1,100 @@
 <script setup>
-import { ref } from "vue";
-import { useRouter } from "vue-router";
-import { useAuthStore } from "@/stores/auth";
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
+import { ApiError } from '@/services/api'
 
-const router = useRouter();
-const auth = useAuthStore();
+defineOptions({ name: 'login-view' })
 
-const username = ref("");
-const password = ref("");
-const error = ref("");
-const loading = ref(false);
+const username = ref('')
+const password = ref('')
+const errorMessage = ref('')
+const submitting = ref(false)
 
-async function submit() {
-  error.value = "";
-  loading.value = true;
+const auth = useAuthStore()
+const router = useRouter()
+
+async function handleSubmit() {
+  errorMessage.value = ''
+  submitting.value = true
   try {
-    await auth.login(username.value, password.value);
-    router.push({ name: "home" });
-  } catch {
-    error.value = "Invalid credentials.";
+    await auth.login({
+      username: username.value,
+      password: password.value,
+    })
+    router.push({ name: 'home' })
+  } catch (err) {
+    if (err instanceof ApiError) {
+      if (err.status === 400 || err.status === 401) {
+        errorMessage.value = 'Usuario o contraseña incorrectos. Inténtalo de nuevo.'
+      } else {
+        errorMessage.value = `Error al iniciar sesión (HTTP ${err.status}).`
+      }
+    } else {
+      errorMessage.value = 'No se pudo contactar con el servidor.'
+    }
   } finally {
-    loading.value = false;
+    submitting.value = false
   }
 }
 </script>
 
 <template>
-  <div class="row justify-content-center">
-    <div class="col-md-4">
-      <h1 class="mb-4">Login</h1>
-      <form @submit.prevent="submit">
-        <div class="mb-3">
-          <label class="form-label">Username</label>
-          <input
-            v-model="username"
-            class="form-control"
-            data-cy="username"
-            type="text"
-            required
-            @keyup.enter="submit"
-          />
+  <section class="row justify-content-center" data-cy="login-view">
+    <div class="col-md-6 col-lg-4">
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <h1 class="h4 mb-3">Iniciar sesión</h1>
+          <form
+            method="post"
+            action="/log-in"
+            data-cy="login-form"
+            @submit.prevent="handleSubmit"
+          >
+            <div class="mb-3">
+              <label for="username" class="form-label">Usuario</label>
+              <input
+                id="username"
+                v-model="username"
+                name="username"
+                type="text"
+                class="form-control"
+                autocomplete="username"
+                required
+                data-cy="username"
+              >
+            </div>
+            <div class="mb-3">
+              <label for="password" class="form-label">Contraseña</label>
+              <input
+                id="password"
+                v-model="password"
+                name="password"
+                type="password"
+                class="form-control"
+                autocomplete="current-password"
+                required
+                data-cy="password"
+              >
+            </div>
+            <div
+              v-if="errorMessage"
+              class="alert alert-danger"
+              data-cy="login-error"
+            >
+              {{ errorMessage }}
+            </div>
+            <button
+              type="submit"
+              class="btn btn-primary w-100"
+              :disabled="submitting"
+              data-cy="login-button"
+            >
+              {{ submitting ? 'Entrando…' : 'Entrar' }}
+            </button>
+          </form>
         </div>
-        <div class="mb-3">
-          <label class="form-label">Password</label>
-          <input
-            v-model="password"
-            class="form-control"
-            data-cy="password"
-            type="password"
-            required
-            @keyup.enter="submit"
-          />
-        </div>
-        <div v-if="error" class="alert alert-danger">{{ error }}</div>
-        <button class="btn btn-primary w-100" type="submit" :disabled="loading">
-          {{ loading ? "Logging in…" : "Login" }}
-        </button>
-      </form>
+      </div>
     </div>
-  </div>
+  </section>
 </template>

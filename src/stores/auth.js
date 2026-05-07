@@ -1,34 +1,50 @@
-import { defineStore } from "pinia";
-import { ref } from "vue";
+import { defineStore } from 'pinia'
+import { ref, computed } from 'vue'
+import { apiFetch } from '@/services/api'
 
-const API = import.meta.env.VITE_API_BASE_URL;
+export const useAuthStore = defineStore('auth', () => {
+  // Token en MEMORIA — no se persiste en localStorage (requisito P4).
+  const token = ref(null)
+  const username = ref(null)
 
-export const useAuthStore = defineStore("auth", () => {
-  const token = ref(null);
-  const username = ref(null);
+  const isAuthenticated = computed(() => Boolean(token.value))
 
-  async function login(user, pass) {
-    const res = await fetch(`${API}/auth/token/login/`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: user, password: pass }),
-    });
-    if (!res.ok) throw new Error("Login failed");
-    const data = await res.json();
-    token.value = data.auth_token;
-    username.value = user;
+  async function login(credentials) {
+    const data = await apiFetch('/token/login/', {
+      method: 'POST',
+      body: JSON.stringify(credentials),
+    })
+    token.value = data.auth_token
+    username.value = credentials.username
+    return data
   }
 
   async function logout() {
-    if (token.value) {
-      await fetch(`${API}/auth/token/logout/`, {
-        method: "POST",
-        headers: { Authorization: `Token ${token.value}` },
-      });
+    if (!token.value) return
+    try {
+      await apiFetch('/token/logout/', {
+        method: 'POST',
+        parseJson: false,
+      })
+    } catch {
+      // Aunque falle el backend, limpiamos sesión localmente.
+    } finally {
+      token.value = null
+      username.value = null
     }
-    token.value = null;
-    username.value = null;
   }
 
-  return { token, username, login, logout };
-});
+  function clear() {
+    token.value = null
+    username.value = null
+  }
+
+  return {
+    token,
+    username,
+    isAuthenticated,
+    login,
+    logout,
+    clear,
+  }
+})
